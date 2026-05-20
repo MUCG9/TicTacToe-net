@@ -54,7 +54,7 @@ sudo pacman -S base-devel cmake qt6-base git
 ### 1. Клонируйте репозиторий
 
 ```
-https://github.com/MUCG9/TicTacToe-net.git
+git clone https://github.com/MUCG9/TicTacToe-net.git
 cd ttt-net
 ```
 
