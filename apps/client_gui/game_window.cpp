@@ -141,9 +141,56 @@ void GameWindow::parseServerMessage(const QString& raw) {
     } else if (msg.type == "ERROR") {
         statusLabel_->setText("Ошибка: " + QString::fromStdString(msg.args[0]));
     } else if (msg.type == "RESULT") {
-        QString res = QString::fromStdString(msg.args[0]);
-        statusLabel_->setText("Игра окончена: " + res);
-        QMessageBox::information(this, "Результат", "Результат: " + res);
+        QString resRaw = QString::fromStdString(msg.args[0]);
+        QString message;
+        QMessageBox::Icon icon;
+
+        // Красивые сообщения для разных исходов
+        if (resRaw == "DRAW") {
+            message = "Ничья! Дружба победила.";
+            icon = QMessageBox::Information;
+        } else if (resRaw == "X_WINS") {
+            if (isMyTurn_ == false) { // Если сейчас не мой ход, значит ходил противник (O), а выиграл X (я или он?)
+                // Логика простая: если мы играем за X и видим X_WINS -> мы выиграли
+                // Но проще проверить, кто мы. Давайте упростим:
+                message = "Победили КРЕСТИКИ (X)!";
+                icon = QMessageBox::Information;
+            } else {
+                 message = "Победили КРЕСТИКИ (X)!";
+                 icon = QMessageBox::Information;
+            }
+        } else if (resRaw == "O_WINS") {
+            message = "Победили НОЛИКИ (O)!";
+            icon = QMessageBox::Information;
+        } else {
+            message = "Игра завершена: " + resRaw;
+            icon = QMessageBox::NoIcon;
+        }
+
+        // Показываем красивое всплывающее окно
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Результат игры");
+        msgBox.setText(message);
+        msgBox.setIcon(icon);
+        msgBox.setStandardButtons(QMessageBox::Ok);
+        msgBox.setStyleSheet(
+            "QMessageBox {"
+            "   background-color: #F0F8FF;" /* Светлый фон окна */
+            "   font-size: 16px;"
+            "}"
+            "QPushButton {"
+            "   background-color: #0000CD;" /* Синяя кнопка как в теме */
+            "   color: white;"
+            "   border-radius: 5px;"
+            "   padding: 5px 15px;"
+            "   min-width: 80px;"
+            "}"
+            "QPushButton:hover {"
+            "   background-color: #00008B;"
+            "}"
+        );
+        
+        msgBox.exec(); // Ждем нажатия OK
     }
 }
 
