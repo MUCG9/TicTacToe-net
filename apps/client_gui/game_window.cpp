@@ -23,30 +23,79 @@ GameWindow::GameWindow(const QString& host, quint16 port, QWidget* parent)
 GameWindow::~GameWindow() = default;
 
 void GameWindow::setupUI() {
+    // --- Глобальный стиль окна (Темно-синий фон, как на слайде) ---
+    this->setStyleSheet(
+        "QMainWindow {"
+        "   background-color: #0000CD;" /* MediumBlue - основной цвет слайда */
+        "   color: white;"
+        "}"
+        "QLabel {"
+        "   color: white;"
+        "   font-weight: bold;"
+        "   font-size: 14px;"
+        "}"
+        "QPushButton {"
+        "   background-color: white;"
+        "   color: #0000CD;"
+        "   border: 2px solid #00008B;" /* DarkBlue */
+        "   border-radius: 10px;"
+        "   font: bold 36px 'Arial';"
+        "}"
+        "QPushButton:hover {"
+        "   background-color: #E6E6FA;" /* Lavender - легкий оттенок при наведении */
+        "   border: 2px solid white;"
+        "}"
+        "QPushButton:disabled {"
+        "   background-color: #F0F8FF;"
+        "   color: #A9A9A9;"
+        "   border: 2px solid #DCDCDC;"
+        "}"
+    );
+
     auto central = new QWidget(this);
     setCentralWidget(central);
+    
+    // Основной вертикальный компоновщик
     auto mainLayout = new QVBoxLayout(central);
+    mainLayout->setSpacing(20);
+    mainLayout->setContentsMargins(20, 20, 20, 20);
 
+    // --- Верхняя панель статуса ---
     statusLabel_ = new QLabel("Подключение...", this);
     statusLabel_->setAlignment(Qt::AlignCenter);
+    statusLabel_->setFixedHeight(30);
     mainLayout->addWidget(statusLabel_);
 
+    // --- Сетка игрового поля ---
     auto grid = new QGridLayout();
+    grid->setSpacing(15); // Расстояние между клетками
+
     for (int r = 0; r < 3; ++r) {
         std::vector<QPushButton*> row;
         for (int c = 0; c < 3; ++c) {
             auto btn = new QPushButton("", this);
-            btn->setFixedSize(80, 80);
-            btn->setStyleSheet("font: bold 32px;");
-            connect(btn, &QPushButton::clicked, this, [this, r, c]() { onCellClicked(r, c); });
+            btn->setFixedSize(100, 100); // Чуть крупнее клетки
+            
+            // Подключаем клик
+            connect(btn, &QPushButton::clicked, this, [this, r, c]() { 
+                onCellClicked(r, c); 
+            });
+            
             grid->addWidget(btn, r, c);
             row.push_back(btn);
         }
         cells_.push_back(std::move(row));
     }
+    
     mainLayout->addLayout(grid);
-    setFixedSize(300, 350);
-    setWindowTitle("Крестики-нолики (Qt Client)");
+    
+    // Растягиваем сетку к центру, если окно большое
+    mainLayout->addStretch();
+
+    // Настройки окна
+    setFixedSize(360, 420);
+    setWindowTitle("Крестики-нолики | TTT-Net");
+    
 }
 
 void GameWindow::onConnected() {
@@ -99,7 +148,6 @@ void GameWindow::parseServerMessage(const QString& raw) {
 }
 
 void GameWindow::applyBoardState(const QString& state) {
-    // state теперь выглядит как "X..O..X.." (9 символов)
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
             int idx = r * 3 + c;
@@ -107,16 +155,26 @@ void GameWindow::applyBoardState(const QString& state) {
                 QChar ch = state[idx];
                 cells_[r][c]->setText(QString(ch));
                 
-                // Раскраска
-                if (ch == 'X') 
-                    cells_[r][c]->setStyleSheet("font: bold 32px; color: blue;");
-                else if (ch == 'O') 
-                    cells_[r][c]->setStyleSheet("font: bold 32px; color: red;");
-                else 
-                    cells_[r][c]->setStyleSheet("font: bold 32px; color: black;");
+                // Стилизация символов
+                if (ch == 'X') {
+                    // Крестик: Ярко-синий, как заголовок на слайде
+                    cells_[r][c]->setStyleSheet(
+                        "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
+                    );
+                } else if (ch == 'O') {
+                    // Нолик: Можно сделать красным или оставить синим, но другим оттенком
+                    cells_[r][c]->setStyleSheet(
+                        "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
+                    );
+                } else {
+                    // Пустая клетка
+                    cells_[r][c]->setStyleSheet(
+                        "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
+                    );
+                }
 
-                // Доступность кнопки
-                cells_[r][c]->setEnabled(ch == '.' && isMyTurn_);
+                // Блокировка занятых клеток
+                cells_[r][c]->setEnabled(ch == '.');
             }
         }
     }
