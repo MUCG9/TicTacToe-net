@@ -1,115 +1,77 @@
 #include "game_window.h"
-#include <QVBoxLayout>      
-#include <QGridLayout>      
-#include "config/parser.h"
 #include "net/protocol.h"
 #include <QMessageBox>
 #include <QApplication>
 #include <QTimer>
 
-GameWindow::GameWindow(const QString& host, quint16 port, QWidget* parent)
-    : QMainWindow(parent), socket_(new QTcpSocket(this)),
-      isConnected_(false), isMyTurn_(true) {
+GameWindow::GameWindow(std::unique_ptr<ttt::net::TcpSocket> sock, 
+                       const QString& opponentName,
+                       ttt::core::Player symbol,
+                       QWidget* parent)
+    : QMainWindow(parent), socket_(std::move(sock)), 
+      isMyTurn_(symbol == ttt::core::Player::X), mySymbol_(symbol) {
     setupUI();
-    connect(socket_, &QTcpSocket::connected, this, &GameWindow::onConnected);
-    connect(socket_, &QTcpSocket::disconnected, this, &GameWindow::onDisconnected);
-    connect(socket_, &QTcpSocket::readyRead, this, &GameWindow::onReadyRead);
-    connect(socket_, QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::errorOccurred),
-            this, &GameWindow::onSocketError);
-    socket_->connectToHost(host, port);
+    infoLabel_->setText("Противник: " + opponentName);
+    statusLabel_->setText(isMyTurn_ ? "Ваш ход (X)" : "Ход противника (O)");
+    setWindowTitle("mipt.ttt");
+
+    connect(socket_.get(), &ttt::net::TcpSocket::disconnected, this, &GameWindow::onDisconnected);
+    connect(socket_.get(), &ttt::net::TcpSocket::readyRead, this, &GameWindow::onReadyRead);
 }
 
 GameWindow::~GameWindow() = default;
 
 void GameWindow::setupUI() {
-   
     this->setStyleSheet(
-        "QMainWindow {"
-        "   background-color: #0000CD;" 
-        "   color: white;"
-        "}"
-        "QLabel {"
-        "   color: white;"
-        "   font-weight: bold;"
-        "   font-size: 14px;"
-        "}"
-        "QPushButton {"
-        "   background-color: white;"
-        "   color: #0000CD;"
-        "   border: 2px solid #00008B;" 
-        "   border-radius: 10px;"
-        "   font: bold 36px 'Arial';"
-        "}"
-        "QPushButton:hover {"
-        "   background-color: #E6E6FA;" 
-        "   border: 2px solid white;"
-        "}"
-        "QPushButton:disabled {"
-        "   background-color: #F0F8FF;"
-        "   color: #A9A9A9;"
-        "   border: 2px solid #DCDCDC;"
-        "}"
+        "QMainWindow { background-color: #0000CD; color: white; }"
+        "QLabel { color: white; font-weight: bold; font-size: 14px; }"
+        "QPushButton { background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial'; }"
+        "QPushButton:hover { background-color: #E6E6FA; border: 2px solid white; }"
+        "QPushButton:disabled { background-color: #F0F8FF; color: #A9A9A9; border: 2px solid #DCDCDC; }"
     );
 
     auto central = new QWidget(this);
     setCentralWidget(central);
-    
     auto mainLayout = new QVBoxLayout(central);
-    mainLayout->setSpacing(20);
+    mainLayout->setSpacing(15);
     mainLayout->setContentsMargins(20, 20, 20, 20);
+
+    infoLabel_ = new QLabel("Загрузка...", this);
+    infoLabel_->setAlignment(Qt::AlignCenter);
+    mainLayout->addWidget(infoLabel_);
 
     statusLabel_ = new QLabel("Подключение...", this);
     statusLabel_->setAlignment(Qt::AlignCenter);
-    statusLabel_->setFixedHeight(30);
     mainLayout->addWidget(statusLabel_);
 
     auto grid = new QGridLayout();
-    grid->setSpacing(15); 
-
+    grid->setSpacing(15);
     for (int r = 0; r < 3; ++r) {
         std::vector<QPushButton*> row;
         for (int c = 0; c < 3; ++c) {
             auto btn = new QPushButton("", this);
-            btn->setFixedSize(100, 100); 
-            
-            connect(btn, &QPushButton::clicked, this, [this, r, c]() { 
-                onCellClicked(r, c); 
-            });
-            
+            btn->setFixedSize(100, 100);
+            connect(btn, &QPushButton::clicked, this, [this, r, c]() { onCellClicked(r, c); });
             grid->addWidget(btn, r, c);
             row.push_back(btn);
         }
         cells_.push_back(std::move(row));
     }
-    
     mainLayout->addLayout(grid);
-    
-    mainLayout->addStretch();
 
-    setFixedSize(360, 420);
-    setWindowTitle("Крестики-нолики | TTT-Net");
-    
-}
+    restartBtn_ = new QPushButton("🔄 Новая игра", this);
+    restartBtn_->setFixedHeight(40);
+    restartBtn_->setStyleSheet("QPushButton { background-color: #FFFFFF; color: #0000CD; font: bold 16px; border-radius: 5px; }");
+    connect(restartBtn_, &QPushButton::clicked, this, &GameWindow::onRestartClicked);
+    mainLayout->addWidget(restartBtn_);
 
-void GameWindow::onConnected() {
-    isConnected_ = true;
-    statusLabel_->setText("Подключено. Ждём начала игры...");
-    resetBoardUI();
+    setFixedSize(360, 480);
 }
 
 void GameWindow::onDisconnected() {
-    isConnected_ = false;
-    statusLabel_->setText("Сервер отключился. Переподключение...");
-    QTimer::singleShot(2000, this, &GameWindow::tryReconnect);
-}
-
-void GameWindow::onSocketError(QAbstractSocket::SocketError error) {
-    statusLabel_->setText("Ошибка сети: " + socket_->errorString());
-    if (!isConnected_) QTimer::singleShot(3000, this, &GameWindow::tryReconnect);
-}
-
-void GameWindow::tryReconnect() {
-    if (!socket_->isOpen()) socket_->connectToHost(socket_->peerName(), socket_->peerPort());
+    statusLabel_->setText("Сервер отключился");
+    restartBtn_->setEnabled(false);
+    for (auto& row : cells_) for (auto btn : row) btn->setEnabled(false);
 }
 
 void GameWindow::onReadyRead() {
@@ -120,67 +82,23 @@ void GameWindow::onReadyRead() {
 void GameWindow::parseServerMessage(const QString& raw) {
     auto msg = ttt::net::Protocol::deserialize(raw.toStdString());
     
-    if (msg.type == "YOU_ARE") {
-        QString me = QString::fromStdString(msg.args[0]);
-        statusLabel_->setText("Вы играете за: " + me + ". Ждём второго игрока...");
-        return;
-    }
-    
     if (msg.type == "STATE") {
-        pendingBoard_ = QString::fromStdString(msg.args.empty() ? "" : msg.args[0]);
-        isMyTurn_ = true;
-        statusLabel_->setText("Ваш ход");
-        applyBoardState(pendingBoard_);
+        applyBoardState(QString::fromStdString(msg.args.empty() ? "" : msg.args[0]));
     } else if (msg.type == "ERROR") {
         statusLabel_->setText("Ошибка: " + QString::fromStdString(msg.args[0]));
     } else if (msg.type == "RESULT") {
-        QString resRaw = QString::fromStdString(msg.args[0]);
-        QString message;
-        QMessageBox::Icon icon;
-
-        if (resRaw == "DRAW") {
-            message = "Ничья! Дружба победила.";
-            icon = QMessageBox::Information;
-        } else if (resRaw == "X_WINS") {
-            if (isMyTurn_ == false) { 
-                message = "Победили КРЕСТИКИ (X)!";
-                icon = QMessageBox::Information;
-            } else {
-                 message = "Победили КРЕСТИКИ (X)!";
-                 icon = QMessageBox::Information;
-            }
-        } else if (resRaw == "O_WINS") {
-            message = "Победили НОЛИКИ (O)!";
-            icon = QMessageBox::Information;
-        } else {
-            message = "Игра завершена: " + resRaw;
-            icon = QMessageBox::NoIcon;
-        }
-
-    
-        QMessageBox msgBox(this);
-        msgBox.setWindowTitle("Результат игры");
-        msgBox.setText(message);
-        msgBox.setIcon(icon);
-        msgBox.setStandardButtons(QMessageBox::Ok);
-        msgBox.setStyleSheet(
-            "QMessageBox {"
-            "   background-color: #F0F8FF;" 
-            "   font-size: 16px;"
-            "}"
-            "QPushButton {"
-            "   background-color: #0000CD;" 
-            "   color: white;"
-            "   border-radius: 5px;"
-            "   padding: 5px 15px;"
-            "   min-width: 80px;"
-            "}"
-            "QPushButton:hover {"
-            "   background-color: #00008B;"
-            "}"
-        );
+        QString res = QString::fromStdString(msg.args[0]);
+        QString message = (res == "DRAW") ? "Ничья!" : 
+                          (res == "X_WIN") ? "Победили КРЕСТИКИ!" : "Победили НОЛИКИ!";
         
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Результат");
+        msgBox.setText(message);
+        msgBox.setIcon(QMessageBox::Information);
+        msgBox.setStyleSheet("QMessageBox{background:#F0F8FF;font-size:16px;} QPushButton{background:#0000CD;color:white;border-radius:5px;padding:5px 15px;}");
         msgBox.exec();
+        
+        statusLabel_->setText("Игра завершена. Нажмите 'Новая игра'");
     }
 }
 
@@ -192,41 +110,43 @@ void GameWindow::applyBoardState(const QString& state) {
                 QChar ch = state[idx];
                 cells_[r][c]->setText(QString(ch));
                 
-            
-                if (ch == 'X') {
-                    cells_[r][c]->setStyleSheet(
-                        "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
-                    );
-                } else if (ch == 'O') {
-                    cells_[r][c]->setStyleSheet(
-                        "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
-                    );
-                } else {
-                    cells_[r][c]->setStyleSheet(
-                        "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
-                    );
-                }
+                if (ch == 'X') 
+                    cells_[r][c]->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
+                else if (ch == 'O') 
+                    cells_[r][c]->setStyleSheet("background:white;color:#DC143C;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
+                else 
+                    cells_[r][c]->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
 
-                cells_[r][c]->setEnabled(ch == '.');
+                bool isMyTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
+                cells_[r][c]->setEnabled(ch == '.' && isMyTurnNow);
             }
         }
     }
 }
 
 void GameWindow::onCellClicked(int row, int col) {
-    if (!isConnected_ || !isMyTurn_) return;
+    bool isMyTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
+    if (!socket_ || !isMyTurnNow) return;
+    
     auto msg = ttt::net::Protocol::make_move(row, col);
-    socket_->write(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
+    socket_->send_data(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
     isMyTurn_ = false;
     statusLabel_->setText("Ход отправлен...");
     cells_[row][col]->setEnabled(false);
+}
+
+void GameWindow::onRestartClicked() {
+    if (!socket_) return;
+    socket_->send_data("RESTART\n");
+    isMyTurn_ = (mySymbol_ == ttt::core::Player::X);
+    statusLabel_->setText("Ожидание перезапуска...");
+    resetBoardUI();
 }
 
 void GameWindow::resetBoardUI() {
     for (auto& row : cells_)
         for (auto btn : row) {
             btn->setText(".");
-            btn->setEnabled(true);
-            btn->setStyleSheet("font: bold 32px;");
+            btn->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
         }
 }

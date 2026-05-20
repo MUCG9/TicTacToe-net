@@ -2,6 +2,8 @@ add_executable(ttt_client_gui
     main.cpp
     game_window.cpp
     game_window.h
+    connection_dialog.cpp
+    connection_dialog.h
 )
 target_link_libraries(ttt_client_gui PRIVATE
     Qt6::Widgets

@@ -1,9 +1,9 @@
 #include <iostream>
 #include <signal.h>
 #include <thread>
-#include <deque>
-#include <mutex>
+#include <unordered_map>
 #include <memory>
+#include <mutex>
 #include "core/board.h"
 #include "net/socket.h"
 #include "net/protocol.h"
@@ -11,64 +11,79 @@
 
 using namespace ttt;
 
-// Очередь ожидающих игроков (потокобезопасная)
-std::mutex queue_mutex;
-std::deque<std::unique_ptr<net::TcpSocket>> waiting_queue;
+struct GameSession {
+    std::string room_id;
+    std::unique_ptr<net::TcpSocket> p1_sock;
+    std::unique_ptr<net::TcpSocket> p2_sock;
+    std::string p1_name, p2_name;
+    core::Board board;
+    core::Player current = core::Player::X;
+    std::mutex mtx;
+};
 
-// Функция, выполняющаяся в отдельном потоке для каждой пары игроков
-void run_game_session(std::unique_ptr<net::TcpSocket> p1, std::unique_ptr<net::TcpSocket> p2) {
+std::mutex rooms_mtx;
+std::unordered_map<std::string, std::shared_ptr<GameSession>> waiting_rooms;
+std::unordered_map<std::string, std::shared_ptr<GameSession>> active_rooms;
+
+void run_session(std::shared_ptr<GameSession> session) {
     try {
-        // Назначаем роли
-        p1->send_data(net::Protocol::serialize({"YOU_ARE", {"X"}}));
-        p2->send_data(net::Protocol::serialize({"YOU_ARE", {"O"}}));
+        session->p1_sock->send_data(net::Protocol::serialize({"YOU_ARE", {"X"}}));
+        session->p1_sock->send_data(net::Protocol::serialize({"OPPONENT_NAME", {session->p2_name}}));
+        session->p2_sock->send_data(net::Protocol::serialize({"YOU_ARE", {"O"}}));
+        session->p2_sock->send_data(net::Protocol::serialize({"OPPONENT_NAME", {session->p1_name}}));
+        
+        session->p1_sock->send_data(net::Protocol::serialize({"ROOM_READY", {}}));
+        session->p2_sock->send_data(net::Protocol::serialize({"ROOM_READY", {}}));
 
-        core::Board board;
-        core::Player current = core::Player::X;
-        net::TcpSocket* clients[2] = {p1.get(), p2.get()};
-
-        std::cout << "[Session " << std::this_thread::get_id() << "] Game started: X vs O\n";
+        net::TcpSocket* clients[2] = {session->p1_sock.get(), session->p2_sock.get()};
+        std::cout << "[Room " << session->room_id << "] Game started: " 
+                  << session->p1_name << "(X) vs " << session->p2_name << "(O)\n";
 
         while (true) {
-            int idx = (current == core::Player::X) ? 0 : 1;
-            auto& sock = *clients[idx];
-
-            // Блокирующее чтение хода
-            std::string raw = sock.recv_data();
+            int idx = (session->current == core::Player::X) ? 0 : 1;
+            std::string raw = clients[idx]->recv_data();
             auto msg = net::Protocol::deserialize(raw);
 
             if (msg.type == "MOVE" && msg.args.size() >= 2) {
                 int r = std::stoi(msg.args[0]);
                 int c = std::stoi(msg.args[1]);
 
-                if (!board.make_move(r, c, current)) {
-                    sock.send_data(net::Protocol::serialize(net::Protocol::make_error("Invalid move")));
+                if (!session->board.make_move(r, c, session->current)) {
+                    clients[idx]->send_data(net::Protocol::serialize(net::Protocol::make_error("Invalid move")));
                     continue;
                 }
 
-                // Рассылаем состояние обоим игрокам
-                auto state_msg = net::Protocol::serialize(net::Protocol::make_state(board.to_string()));
+                auto state_msg = net::Protocol::serialize(net::Protocol::make_state(session->board.to_string()));
                 clients[0]->send_data(state_msg);
                 clients[1]->send_data(state_msg);
 
-                // Проверка конца игры
-                auto state = board.check_state();
+                auto state = session->board.check_state();
                 if (state != core::State::InProgress) {
                     std::string res = (state == core::State::Draw) ? "DRAW" :
                                       (state == core::State::Win_X) ? "X_WIN" : "O_WIN";
                     auto res_msg = net::Protocol::serialize(net::Protocol::make_result(res));
                     clients[0]->send_data(res_msg);
                     clients[1]->send_data(res_msg);
-                    std::cout << "[Session " << std::this_thread::get_id() << "] Finished: " << res << "\n";
+                    std::cout << "[Room " << session->room_id << "] Finished: " << res << "\n";
                     break;
                 }
-
-                current = (current == core::Player::X) ? core::Player::O : core::Player::X;
+                session->current = (session->current == core::Player::X) ? core::Player::O : core::Player::X;
+            } 
+            else if (msg.type == "RESTART") {
+                session->board = core::Board();
+                session->current = core::Player::X;
+                auto state_msg = net::Protocol::serialize(net::Protocol::make_state(session->board.to_string()));
+                clients[0]->send_data(state_msg);
+                clients[1]->send_data(state_msg);
+                std::cout << "[Room " << session->room_id << "] Restarted\n";
             }
         }
     } catch (const std::exception& e) {
-        std::cout << "[Session " << std::this_thread::get_id() << "] Closed: " << e.what() << "\n";
+        std::cout << "[Room " << session->room_id << "] Closed: " << e.what() << "\n";
     }
-    // unique_ptr автоматически закроет сокеты при выходе из функции (RAII)
+
+    std::lock_guard<std::mutex> lock(rooms_mtx);
+    active_rooms.erase(session->room_id);
 }
 
 int main(int argc, char* argv[]) {
@@ -84,32 +99,51 @@ int main(int argc, char* argv[]) {
 
     int port = std::stoi(cfg.get("server.port", "9090"));
     std::string bind_addr = cfg.get("server.bind_address", "0.0.0.0");
-
     signal(SIGPIPE, SIG_IGN);
 
     try {
         net::TcpSocket srv;
         srv.bind(bind_addr, port);
-        srv.listen(5);
-        std::cout << "Server listening on " << bind_addr << ":" << port << "\n";
-        std::cout << "Matchmaking active. Connect 2 clients to start a game.\n";
+        srv.listen(20);
+        std::cout << "Lobby Server listening on " << bind_addr << ":" << port << "\n";
 
-        // Бесконечный цикл принятия подключений
         while (true) {
             auto client = srv.accept();
-            {
-                std::lock_guard<std::mutex> lock(queue_mutex);
-                waiting_queue.push_back(std::move(client));
-                std::cout << "[Queue] Players waiting: " << waiting_queue.size() << "\n";
+            // Ожидаем JOIN <room_id> <player_name>
+            std::string raw = client->recv_data();
+            auto msg = net::Protocol::deserialize(raw);
+            
+            if (msg.type != "JOIN" || msg.args.size() < 2) {
+                client->send_data(net::Protocol::serialize(net::Protocol::make_error("Invalid JOIN format. Use: JOIN <room> <name>")));
+                continue;
+            }
 
-                // Если есть пара → запускаем игру в новом потоке
-                if (waiting_queue.size() >= 2) {
-                    auto p1 = std::move(waiting_queue.front()); waiting_queue.pop_front();
-                    auto p2 = std::move(waiting_queue.front()); waiting_queue.pop_front();
+            std::string room_id = msg.args[0];
+            std::string p_name;
+            for (size_t i = 1; i < msg.args.size(); ++i) p_name += msg.args[i] + (i < msg.args.size() - 1 ? " " : "");
 
-                    std::thread game_thread(run_game_session, std::move(p1), std::move(p2));
-                    game_thread.detach(); // Поток живёт независимо от сервера
-                }
+            std::lock_guard<std::mutex> lock(rooms_mtx);
+            if (active_rooms.count(room_id)) {
+                client->send_data(net::Protocol::serialize(net::Protocol::make_error("Room is active or full")));
+                continue;
+            }
+
+            if (waiting_rooms.count(room_id)) {
+                auto session = waiting_rooms[room_id];
+                waiting_rooms.erase(room_id);
+                session->p2_sock = std::move(client);
+                session->p2_name = p_name;
+                active_rooms[room_id] = session;
+                std::thread t(run_session, session);
+                t.detach();
+            } else {
+                auto session = std::make_shared<GameSession>();
+                session->room_id = room_id;
+                session->p1_sock = std::move(client);
+                session->p1_name = p_name;
+                waiting_rooms[room_id] = session;
+                client->send_data(net::Protocol::serialize({"WAITING", {}}));
+                std::cout << "[Lobby] Player " << p_name << " waiting in room " << room_id << "\n";
             }
         }
     } catch (const std::exception& e) {
