@@ -1,25 +1,26 @@
 #include "game_window.h"
 #include "net/protocol.h"
+#include <QVBoxLayout>
+#include <QGridLayout>
 #include <QMessageBox>
 #include <QApplication>
-#include <QTimer>
 
-GameWindow::GameWindow(std::unique_ptr<ttt::net::TcpSocket> sock, 
-                       const QString& opponentName,
-                       ttt::core::Player symbol,
-                       QWidget* parent)
-    : QMainWindow(parent), socket_(std::move(sock)), 
+GameWindow::GameWindow(QTcpSocket* socket, const QString& opponentName,
+                       ttt::core::Player symbol, QWidget* parent)
+    : QMainWindow(parent), socket_(socket), 
       isMyTurn_(symbol == ttt::core::Player::X), mySymbol_(symbol) {
     setupUI();
     infoLabel_->setText("Противник: " + opponentName);
     statusLabel_->setText(isMyTurn_ ? "Ваш ход (X)" : "Ход противника (O)");
     setWindowTitle("mipt.ttt");
 
-    connect(socket_.get(), &ttt::net::TcpSocket::disconnected, this, &GameWindow::onDisconnected);
-    connect(socket_.get(), &ttt::net::TcpSocket::readyRead, this, &GameWindow::onReadyRead);
+    connect(socket_, &QTcpSocket::disconnected, this, &GameWindow::onDisconnected);
+    connect(socket_, &QTcpSocket::readyRead, this, &GameWindow::onReadyRead);
 }
 
-GameWindow::~GameWindow() = default;
+GameWindow::~GameWindow() {
+    if (socket_) socket_->deleteLater();
+}
 
 void GameWindow::setupUI() {
     this->setStyleSheet(
@@ -76,7 +77,10 @@ void GameWindow::onDisconnected() {
 
 void GameWindow::onReadyRead() {
     QString data = QString::fromUtf8(socket_->readAll());
-    parseServerMessage(data.trimmed());
+    QStringList msgs = data.split('\n', Qt::SkipEmptyParts);
+    for (const QString& msg : msgs) {
+        parseServerMessage(msg.trimmed());
+    }
 }
 
 void GameWindow::parseServerMessage(const QString& raw) {
@@ -84,6 +88,8 @@ void GameWindow::parseServerMessage(const QString& raw) {
     
     if (msg.type == "STATE") {
         applyBoardState(QString::fromStdString(msg.args.empty() ? "" : msg.args[0]));
+        bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
+        statusLabel_->setText(myTurnNow ? "Ваш ход" : "Ход противника");
     } else if (msg.type == "ERROR") {
         statusLabel_->setText("Ошибка: " + QString::fromStdString(msg.args[0]));
     } else if (msg.type == "RESULT") {
@@ -117,19 +123,19 @@ void GameWindow::applyBoardState(const QString& state) {
                 else 
                     cells_[r][c]->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
 
-                bool isMyTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
-                cells_[r][c]->setEnabled(ch == '.' && isMyTurnNow);
+                bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
+                cells_[r][c]->setEnabled(ch == '.' && myTurnNow);
             }
         }
     }
 }
 
 void GameWindow::onCellClicked(int row, int col) {
-    bool isMyTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
-    if (!socket_ || !isMyTurnNow) return;
+    bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
+    if (!socket_ || !myTurnNow) return;
     
     auto msg = ttt::net::Protocol::make_move(row, col);
-    socket_->send_data(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
+    socket_->write(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
     isMyTurn_ = false;
     statusLabel_->setText("Ход отправлен...");
     cells_[row][col]->setEnabled(false);
@@ -137,7 +143,7 @@ void GameWindow::onCellClicked(int row, int col) {
 
 void GameWindow::onRestartClicked() {
     if (!socket_) return;
-    socket_->send_data("RESTART\n");
+    socket_->write("RESTART\n");
     isMyTurn_ = (mySymbol_ == ttt::core::Player::X);
     statusLabel_->setText("Ожидание перезапуска...");
     resetBoardUI();
@@ -148,5 +154,6 @@ void GameWindow::resetBoardUI() {
         for (auto btn : row) {
             btn->setText(".");
             btn->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
+            btn->setEnabled(false);
         }
 }

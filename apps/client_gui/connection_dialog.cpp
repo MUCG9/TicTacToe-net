@@ -1,8 +1,10 @@
 #include "connection_dialog.h"
 #include "net/protocol.h"
 #include <QMessageBox>
+#include <QApplication>
+#include <QTimer>
 
-ConnectionDialog::ConnectionDialog(QWidget* parent) : QDialog(parent) {
+ConnectionDialog::ConnectionDialog(QWidget* parent) : QDialog(parent), socket_(new QTcpSocket(this)) {
     setWindowTitle("mipt.ttt - Подключение");
     setFixedSize(320, 220);
 
@@ -35,48 +37,51 @@ void ConnectionDialog::onConnect() {
     statusLabel->setText("Подключение к серверу...");
     QApplication::processEvents();
 
-    try {
-        socket_ = std::make_unique<ttt::net::TcpSocket>();
-        socket_->connect(hostEdit->text().toStdString(), portEdit->text().toInt());
-
-        roomId_ = roomEdit->text();
-        playerName_ = nameEdit->text();
-        
-        std::string joinMsg = "JOIN " + roomId_.toStdString() + " " + playerName_.toStdString();
-        socket_->send_data(joinMsg);
-
-        // Читаем ответы сервера
-        while (true) {
-            auto raw = socket_->recv_data();
-            auto msg = ttt::net::Protocol::deserialize(raw);
-            
-            if (msg.type == "YOU_ARE") {
-                symbol_ = (msg.args[0] == "X") ? ttt::core::Player::X : ttt::core::Player::O;
-            } else if (msg.type == "OPPONENT_NAME") {
-                opponentName_ = QString::fromStdString(msg.args[0]);
-            } else if (msg.type == "WAITING") {
-                statusLabel->setText("Ожидание второго игрока в комнате " + roomId_ + "...");
-                continue;
-            } else if (msg.type == "ROOM_READY") {
-                statusLabel->setText("Игра началась!");
-                QApplication::processEvents();
-                emit connectedSuccessfully();
-                accept();
-                return;
-            } else if (msg.type == "ERROR") {
-                QMessageBox::critical(this, "Ошибка", QString::fromStdString(msg.args[0]));
-                connectBtn->setEnabled(true);
-                statusLabel->setText("Готово к подключению");
-                return;
-            }
-        }
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Ошибка сети", e.what());
+    socket_->connectToHost(hostEdit->text(), portEdit->text().toInt());
+    if (!socket_->waitForConnected(5000)) {
+        QMessageBox::critical(this, "Ошибка сети", "Не удалось подключиться к серверу.");
         connectBtn->setEnabled(true);
         statusLabel->setText("Готово к подключению");
+        return;
+    }
+
+    roomId_ = roomEdit->text();
+    playerName_ = nameEdit->text();
+    
+    std::string joinMsg = "JOIN " + roomId_.toStdString() + " " + playerName_.toStdString();
+    socket_->write(joinMsg.c_str());
+    socket_->waitForBytesWritten();
+
+    // Читаем ответы сервера синхронно на этапе подключения
+    while (true) {
+        if (!socket_->waitForReadyRead(10000)) break;
+        QString raw = QString::fromUtf8(socket_->readAll()).trimmed();
+        auto msg = ttt::net::Protocol::deserialize(raw.toStdString());
+        
+        if (msg.type == "YOU_ARE") {
+            symbol_ = (msg.args[0] == "X") ? ttt::core::Player::X : ttt::core::Player::O;
+        } else if (msg.type == "OPPONENT_NAME") {
+            opponentName_ = QString::fromStdString(msg.args[0]);
+        } else if (msg.type == "WAITING") {
+            statusLabel->setText("Ожидание второго игрока в комнате " + roomId_ + "...");
+            QApplication::processEvents();
+            continue;
+        } else if (msg.type == "ROOM_READY") {
+            statusLabel->setText("Игра началась!");
+            QApplication::processEvents();
+            emit connectedSuccessfully();
+            accept();
+            return;
+        } else if (msg.type == "ERROR") {
+            QMessageBox::critical(this, "Ошибка", QString::fromStdString(msg.args[0]));
+            connectBtn->setEnabled(true);
+            statusLabel->setText("Готово к подключению");
+            return;
+        }
     }
 }
 
-std::unique_ptr<ttt::net::TcpSocket> ConnectionDialog::releaseSocket() {
-    return std::move(socket_);
+QTcpSocket* ConnectionDialog::releaseSocket() {
+    socket_->setParent(nullptr); // Открепляем от диалога, чтобы не закрылся при его уничтожении
+    return socket_;
 }

@@ -1,23 +1,19 @@
 #pragma once
 #include <QMainWindow>
+#include <QTcpSocket>
 #include <QVector>
 #include <QLabel>
 #include <QPushButton>
-#include <memory>
 #include "core/board.h"
-#include "net/socket.h"
 
 class QGridLayout;
 class QVBoxLayout;
-class QHBoxLayout;
 
 class GameWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit GameWindow(std::unique_ptr<ttt::net::TcpSocket> sock, 
-                        const QString& opponentName,
-                        ttt::core::Player symbol,
-                        QWidget* parent = nullptr);
+    explicit GameWindow(QTcpSocket* socket, const QString& opponentName,
+                        ttt::core::Player symbol, QWidget* parent = nullptr);
     ~GameWindow() override;
 
 private slots:
@@ -27,7 +23,7 @@ private slots:
     void onRestartClicked();
 
 private:
-    std::unique_ptr<ttt::net::TcpSocket> socket_;
+    QTcpSocket* socket_;
     std::vector<std::vector<QPushButton*>> cells_;
     QLabel* statusLabel_;
     QLabel* infoLabel_;
