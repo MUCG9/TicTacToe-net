@@ -55,7 +55,7 @@ sudo pacman -S base-devel cmake qt6-base git
 
 ```
 git clone https://github.com/MUCG9/TicTacToe-net.git
-cd ttt-net
+cd TicTacToe-net
 ```
 
 ### 2. Сборка проекта

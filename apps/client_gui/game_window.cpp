@@ -6,7 +6,6 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QTimer>
-// ... остальное без изменений
 
 GameWindow::GameWindow(const QString& host, quint16 port, QWidget* parent)
     : QMainWindow(parent), socket_(new QTcpSocket(this)),
@@ -23,10 +22,10 @@ GameWindow::GameWindow(const QString& host, quint16 port, QWidget* parent)
 GameWindow::~GameWindow() = default;
 
 void GameWindow::setupUI() {
-    // --- Глобальный стиль окна (Темно-синий фон, как на слайде) ---
+   
     this->setStyleSheet(
         "QMainWindow {"
-        "   background-color: #0000CD;" /* MediumBlue - основной цвет слайда */
+        "   background-color: #0000CD;" 
         "   color: white;"
         "}"
         "QLabel {"
@@ -37,12 +36,12 @@ void GameWindow::setupUI() {
         "QPushButton {"
         "   background-color: white;"
         "   color: #0000CD;"
-        "   border: 2px solid #00008B;" /* DarkBlue */
+        "   border: 2px solid #00008B;" 
         "   border-radius: 10px;"
         "   font: bold 36px 'Arial';"
         "}"
         "QPushButton:hover {"
-        "   background-color: #E6E6FA;" /* Lavender - легкий оттенок при наведении */
+        "   background-color: #E6E6FA;" 
         "   border: 2px solid white;"
         "}"
         "QPushButton:disabled {"
@@ -55,28 +54,24 @@ void GameWindow::setupUI() {
     auto central = new QWidget(this);
     setCentralWidget(central);
     
-    // Основной вертикальный компоновщик
     auto mainLayout = new QVBoxLayout(central);
     mainLayout->setSpacing(20);
     mainLayout->setContentsMargins(20, 20, 20, 20);
 
-    // --- Верхняя панель статуса ---
     statusLabel_ = new QLabel("Подключение...", this);
     statusLabel_->setAlignment(Qt::AlignCenter);
     statusLabel_->setFixedHeight(30);
     mainLayout->addWidget(statusLabel_);
 
-    // --- Сетка игрового поля ---
     auto grid = new QGridLayout();
-    grid->setSpacing(15); // Расстояние между клетками
+    grid->setSpacing(15); 
 
     for (int r = 0; r < 3; ++r) {
         std::vector<QPushButton*> row;
         for (int c = 0; c < 3; ++c) {
             auto btn = new QPushButton("", this);
-            btn->setFixedSize(100, 100); // Чуть крупнее клетки
+            btn->setFixedSize(100, 100); 
             
-            // Подключаем клик
             connect(btn, &QPushButton::clicked, this, [this, r, c]() { 
                 onCellClicked(r, c); 
             });
@@ -89,10 +84,8 @@ void GameWindow::setupUI() {
     
     mainLayout->addLayout(grid);
     
-    // Растягиваем сетку к центру, если окно большое
     mainLayout->addStretch();
 
-    // Настройки окна
     setFixedSize(360, 420);
     setWindowTitle("Крестики-нолики | TTT-Net");
     
@@ -145,14 +138,11 @@ void GameWindow::parseServerMessage(const QString& raw) {
         QString message;
         QMessageBox::Icon icon;
 
-        // Красивые сообщения для разных исходов
         if (resRaw == "DRAW") {
             message = "Ничья! Дружба победила.";
             icon = QMessageBox::Information;
         } else if (resRaw == "X_WINS") {
-            if (isMyTurn_ == false) { // Если сейчас не мой ход, значит ходил противник (O), а выиграл X (я или он?)
-                // Логика простая: если мы играем за X и видим X_WINS -> мы выиграли
-                // Но проще проверить, кто мы. Давайте упростим:
+            if (isMyTurn_ == false) { 
                 message = "Победили КРЕСТИКИ (X)!";
                 icon = QMessageBox::Information;
             } else {
@@ -167,7 +157,7 @@ void GameWindow::parseServerMessage(const QString& raw) {
             icon = QMessageBox::NoIcon;
         }
 
-        // Показываем красивое всплывающее окно
+    
         QMessageBox msgBox(this);
         msgBox.setWindowTitle("Результат игры");
         msgBox.setText(message);
@@ -175,11 +165,11 @@ void GameWindow::parseServerMessage(const QString& raw) {
         msgBox.setStandardButtons(QMessageBox::Ok);
         msgBox.setStyleSheet(
             "QMessageBox {"
-            "   background-color: #F0F8FF;" /* Светлый фон окна */
+            "   background-color: #F0F8FF;" 
             "   font-size: 16px;"
             "}"
             "QPushButton {"
-            "   background-color: #0000CD;" /* Синяя кнопка как в теме */
+            "   background-color: #0000CD;" 
             "   color: white;"
             "   border-radius: 5px;"
             "   padding: 5px 15px;"
@@ -190,7 +180,7 @@ void GameWindow::parseServerMessage(const QString& raw) {
             "}"
         );
         
-        msgBox.exec(); // Ждем нажатия OK
+        msgBox.exec();
     }
 }
 
@@ -202,25 +192,21 @@ void GameWindow::applyBoardState(const QString& state) {
                 QChar ch = state[idx];
                 cells_[r][c]->setText(QString(ch));
                 
-                // Стилизация символов
+            
                 if (ch == 'X') {
-                    // Крестик: Ярко-синий, как заголовок на слайде
                     cells_[r][c]->setStyleSheet(
                         "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
                     );
                 } else if (ch == 'O') {
-                    // Нолик: Можно сделать красным или оставить синим, но другим оттенком
                     cells_[r][c]->setStyleSheet(
                         "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
                     );
                 } else {
-                    // Пустая клетка
                     cells_[r][c]->setStyleSheet(
                         "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';"
                     );
                 }
 
-                // Блокировка занятых клеток
                 cells_[r][c]->setEnabled(ch == '.');
             }
         }
