@@ -1,9 +1,3 @@
-Вот полный исходный код для вашего README.md файла, восстановленный по скриншотам.
-
-Вы можете скопировать его целиком и вставить в свой проект.
-
-Markdown
-
 # 🎮 Network Tic-Tac-Toe (TTT-Net)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -40,49 +34,50 @@ Markdown
 ### Установка зависимостей
 
 **Fedora / RHEL:**
-```bash
+```
 sudo dnf install cmake gcc-c++ make qt6-qtbase-devel git
-Ubuntu / Debian:
+```
 
-Bash
-
+**Ubuntu / Debian:**
+```
 sudo apt update
 sudo apt install build-essential cmake libqt6widgets6 libqt6network6 qt6-base-dev git
-Arch Linux:
+```
 
-Bash
-
+**Arch Linux:**
+```
 sudo pacman -S base-devel cmake qt6-base git
-🚀 Быстрый старт
-1. Клонируйте репозиторий
-Bash
+```
 
+🚀 Быстрый старт
+
+1. Клонируйте репозиторий
+```
 git clone https://github.com/ваш-ник/ttt-net.git
 cd ttt-net
+```
+
 2. Сборка проекта
-Bash
 
 # Создаём папку для сборки (out-of-source build)
-mkdir build && cd build
+```mkdir build && cd build```
 
 # Конфигурация CMake (Release-режим)
-cmake .. -DCMAKE_BUILD_TYPE=Release
+```cmake .. -DCMAKE_BUILD_TYPE=Release```
 
 # Компиляция (используем все ядра процессора)
-make -j$(nproc)
+```make -j$(nproc)```
+
 3. Запуск игры
 Вариант А: Игра против сервера (один ПК)
 
-Bash
-
 # Терминал 1: Запуск сервера
-./apps/server/ttt_server
+```./apps/server/ttt_server```
 
 # Терминал 2: Запуск графического клиента
-./apps/client_gui/ttt_client_gui
-Вариант Б: Игра по сети (два ПК)
+```./apps/client_gui/ttt_client_gui```
 
-Bash
+Вариант Б: Игра по сети (два ПК)
 
 # На ПК с сервером:
 ./apps/server/ttt_server server.port=9090
