@@ -1,0 +1,8 @@
+set(CPACK_PACKAGE_NAME "ttt-net")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_CONTACT "student@example.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Network Tic-Tac-Toe with shared libs and config-driven setup")
+set(CPACK_GENERATOR "DEB;RPM")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.17)")
+set(CPACK_RPM_PACKAGE_AUTOREQPROV OFF)
+include(CPack)
