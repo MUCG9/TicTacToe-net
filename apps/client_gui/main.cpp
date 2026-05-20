@@ -7,6 +7,7 @@ int main(int argc, char* argv[]) {
     QApplication::setStyle("Fusion");
 
     ConnectionDialog dialog;
+    // exec() блокирует выполнение, пока диалог не будет закрыт (принят или отклонен)
     if (dialog.exec() == QDialog::Accepted) {
         GameWindow window(
             dialog.releaseSocket(),
