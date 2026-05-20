@@ -51,42 +51,49 @@ sudo pacman -S base-devel cmake qt6-base git
 
 ## Быстрый старт
 
-**1. Клонируйте репозиторий**
+### 1. Клонируйте репозиторий
+
 ```
 git clone https://github.com/ваш-ник/ttt-net.git
 cd ttt-net
 ```
 
-**2. Сборка проекта**
+### 2. Сборка проекта
 
-Создаём папку для сборки (out-of-source build)
-```mkdir build && cd build```
+```
+# Создаём папку для сборки (out-of-source build)
+mkdir build && cd build
 
-Конфигурация CMake (Release-режим)
-```cmake .. -DCMAKE_BUILD_TYPE=Release```
+# Конфигурация CMake (Release-режим)
+cmake .. -DCMAKE_BUILD_TYPE=Release
 
-Компиляция (используем все ядра процессора)
-```make -j$(nproc)```
+# Компиляция (используем все ядра процессора)
+make -j$(nproc)
+```
 
-**3. Запуск игры**
-*- Вариант А: Игра против сервера (один ПК)*
+### 3. Запуск игры
 
-Терминал 1: Запуск сервера
-```./apps/server/ttt_server```
+**Вариант А: Игра против сервера (один ПК)**
+```
+# Терминал 1: Запуск сервера
+./apps/server/ttt_server
 
-Терминал 2: Запуск графического клиента
-```./apps/client_gui/ttt_client_gui```
+# Терминал 2: Запуск графического клиента
+./apps/client_gui/ttt_client_gui
+```
 
-*- Вариант Б: Игра по сети (два ПК)*
+**Вариант Б: Игра по сети (два ПК)**
+```
+# На ПК с сервером:
+./apps/server/ttt_server server.port=9090
 
-На ПК с сервером:
-```./apps/server/ttt_server server.port=9090```
-
-На втором ПК (клиент):
-```./apps/client_gui/ttt_client_gui client.server_host=192.168.1.100```
+# На втором ПК (клиент):
+./apps/client_gui/ttt_client_gui client.server_host=192.168.1.100
 Замените 192.168.1.100 на реальный IP-адрес компьютера с сервером.
+```
 
 ## Конфигурация
+
 Проект поддерживает три уровня конфигурации (по убыванию приоритета):
 
 1. Аргументы командной строки (наивысший приоритет)
@@ -102,6 +109,7 @@ cd ttt-net
 
 
 ## Сборка пакетов (DEB / RPM)
+
 Проект настроен для автоматической упаковки через CPack.
 
 ```cd build
@@ -116,10 +124,9 @@ cpack -G RPM   # Для Fedora/RHEL
 ```
 
 Результат появится в папке build/:
-```
-ttt-net-1.0.0-Linux.deb
-ttt-net-1.0.0-Linux.rpm
-```
+
+- ttt-net-1.0.0-Linux.deb
+- ttt-net-1.0.0-Linux.rpm
 
 **Установка:**
 ```
