@@ -59,12 +59,23 @@ void TcpSocket::send_data(const std::string& data) {
     }
 }
 
-std::string TcpSocket::recv_data(size_t max_len) {
-    std::string buf(max_len, '\0');
-    ssize_t n = ::recv(fd_, buf.data(), buf.size(), 0);
-    if (n <= 0) handle_error("recv() failed or connection closed");
-    buf.resize(n);
-    return buf;
+std::string TcpSocket::recv_data(size_t) {
+    std::string result;
+    char ch;
+
+    while (true) {
+        ssize_t n = ::recv(fd_, &ch, 1, 0);
+
+        if (n <= 0)
+            handle_error("recv() failed or connection closed");
+
+        if (ch == '\n')
+            break;
+
+        result += ch;
+    }
+
+    return result;
 }
 
 void TcpSocket::handle_error(const std::string& msg) {

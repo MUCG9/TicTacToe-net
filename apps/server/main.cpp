@@ -35,6 +35,13 @@ void run_session(std::shared_ptr<GameSession> session) {
         session->p1_sock->send_data(net::Protocol::serialize({"ROOM_READY", {}}));
         session->p2_sock->send_data(net::Protocol::serialize({"ROOM_READY", {}}));
 
+        auto init_state = net::Protocol::serialize(
+            net::Protocol::make_state(session->board.to_string())
+        );
+
+        session->p1_sock->send_data(init_state);
+        session->p2_sock->send_data(init_state);
+
         net::TcpSocket* clients[2] = {session->p1_sock.get(), session->p2_sock.get()};
         std::cout << "[Room " << session->room_id << "] Game started: " 
                   << session->p1_name << "(X) vs " << session->p2_name << "(O)\n";
@@ -43,6 +50,7 @@ void run_session(std::shared_ptr<GameSession> session) {
             int idx = (session->current == core::Player::X) ? 0 : 1;
             std::string raw = clients[idx]->recv_data();
             auto msg = net::Protocol::deserialize(raw);
+            std::cout << "SERVER GOT: [" << raw << "]\n";
 
             if (msg.type == "MOVE" && msg.args.size() >= 2) {
                 int r = std::stoi(msg.args[0]);

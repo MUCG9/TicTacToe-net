@@ -35,4 +35,5 @@ private:
     void resetBoardUI();
     void parseServerMessage(const QString& raw);
     void applyBoardState(const QString& state);
+    int moveCount_; 
 };

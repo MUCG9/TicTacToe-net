@@ -8,7 +8,9 @@
 GameWindow::GameWindow(QTcpSocket* socket, const QString& opponentName,
                        ttt::core::Player symbol, QWidget* parent)
     : QMainWindow(parent), socket_(socket), 
-      isMyTurn_(symbol == ttt::core::Player::X), mySymbol_(symbol) {
+      isMyTurn_(symbol == ttt::core::Player::X), // X всегда ходит первым
+      mySymbol_(symbol),
+      moveCount_(0) { // <-- Инициализация
     setupUI();
     infoLabel_->setText("Противник: " + opponentName);
     statusLabel_->setText(isMyTurn_ ? "Ваш ход (X)" : "Ход противника (O)");
@@ -77,6 +79,7 @@ void GameWindow::onDisconnected() {
 
 void GameWindow::onReadyRead() {
     QString data = QString::fromUtf8(socket_->readAll());
+    qDebug() << "CLIENT RECEIVED:" << data;
     QStringList msgs = data.split('\n', Qt::SkipEmptyParts);
     for (const QString& msg : msgs) {
         parseServerMessage(msg.trimmed());
@@ -109,36 +112,85 @@ void GameWindow::parseServerMessage(const QString& raw) {
 }
 
 void GameWindow::applyBoardState(const QString& state) {
+    // Подсчитываем фигуры для определения хода
+    int xCount = 0;
+    int oCount = 0;
+    
+    for (int i = 0; i < state.length(); ++i) {
+        if (state[i] == 'X') xCount++;
+        if (state[i] == 'O') oCount++;
+    }
+    
+    bool isXTurn = (xCount == oCount);
+    bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isXTurn : !isXTurn;
+
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
             int idx = r * 3 + c;
+            QPushButton* btn = cells_[r][c];
+            
             if (idx < state.length()) {
                 QChar ch = state[idx];
-                cells_[r][c]->setText(QString(ch));
                 
-                if (ch == 'X') 
-                    cells_[r][c]->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
-                else if (ch == 'O') 
-                    cells_[r][c]->setStyleSheet("background:white;color:#DC143C;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
-                else 
-                    cells_[r][c]->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
+                // 1. Устанавливаем текст
+                btn->setText(QString(ch));
+                
+                // 2. Сбрасываем стиль, чтобы избежать конфликтов кэширования
+                btn->setStyleSheet(""); 
+                
+                // 3. Применяем новый стиль в зависимости от символа
+                QString style;
+                if (ch == 'X') {
+                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+                } else if (ch == 'O') {
+                    style = "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+                } else {
+                    // Пустая клетка
+                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+                }
+                btn->setStyleSheet(style);
 
-                bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
-                cells_[r][c]->setEnabled(ch == '.' && myTurnNow);
+                // 4. Управление доступностью (блокировка)
+                bool canClick = (ch == '.' && myTurnNow);
+                btn->setEnabled(canClick);
             }
         }
     }
+
+    // Обновляем статусную строку
+    if (myTurnNow) {
+        QString symbolStr = (mySymbol_ == ttt::core::Player::X) ? "X" : "O";
+        statusLabel_->setText("Ваш ход (" + symbolStr + ")");
+        statusLabel_->setStyleSheet("color: #00FF00; font-weight: bold; font-size: 16px;");
+    } else {
+        statusLabel_->setText("Ход противника...");
+        statusLabel_->setStyleSheet("color: #FFFF00; font-weight: bold; font-size: 16px;");
+    }
+    
+    // Форсируем перерисовку окна
+    this->update();
+    QApplication::processEvents();
 }
 
 void GameWindow::onCellClicked(int row, int col) {
-    bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
-    if (!socket_ || !myTurnNow) return;
+    // Проверка: кнопка должна быть enabled. Если нет - выходим.
+    if (!cells_[row][col]->isEnabled()) return;
     
+    // Дополнительная проверка на всякий случай
+    if (!socket_) return;
+
+    // Отправляем ход
     auto msg = ttt::net::Protocol::make_move(row, col);
-    socket_->write(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
-    isMyTurn_ = false;
-    statusLabel_->setText("Ход отправлен...");
+    socket_->write(QString::fromStdString(
+    ttt::net::Protocol::serialize(msg)
+    ).toUtf8());
+
+    socket_->flush();
+    socket_->waitForBytesWritten();
+    
+    // Сразу блокируем кнопку, чтобы нельзя было нажать дважды пока ждем ответ
     cells_[row][col]->setEnabled(false);
+    statusLabel_->setText("Отправка хода...");
 }
 
 void GameWindow::onRestartClicked() {

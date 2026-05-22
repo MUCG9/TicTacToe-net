@@ -3,6 +3,7 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QEventLoop>
+#include <QTimer>
 
 ConnectionDialog::ConnectionDialog(QWidget* parent) : QDialog(parent), socket_(new QTcpSocket(this)) {
     setWindowTitle("mipt.ttt - Подключение");
@@ -51,7 +52,10 @@ void ConnectionDialog::onConnect() {
     playerName_ = nameEdit->text();
     
     // Отправляем JOIN
-    std::string joinMsg = "JOIN " + roomId_.toStdString() + " " + playerName_.toStdString();
+    std::string joinMsg =
+        "JOIN " + roomId_.toStdString() +
+        " " + playerName_.toStdString() + "\n";
+
     socket_->write(joinMsg.c_str());
     socket_->waitForBytesWritten();
     
@@ -86,7 +90,8 @@ void ConnectionDialog::onConnect() {
                     statusLabel->setText("Ожидание второго игрока...\nКомната: " + roomId_);
                 } else if (msg.type == "ROOM_READY") {
                     gameReady = true;
-                    loop.quit(); // Выходим из цикла ожидания
+
+                    QTimer::singleShot(100, &loop, &QEventLoop::quit);
                 } else if (msg.type == "ERROR") {
                     errorOccurred = true;
                     errorMsg = QString::fromStdString(msg.args[0]);
@@ -98,7 +103,6 @@ void ConnectionDialog::onConnect() {
         }
     });
 
-    // Также следим за разрывом соединения
     connect(socket_, &QTcpSocket::disconnected, [&]() {
         if (!gameReady && !errorOccurred) {
             errorOccurred = true;
@@ -107,7 +111,6 @@ void ConnectionDialog::onConnect() {
         }
     });
 
-    // Запускаем цикл обработки событий, пока не получим ROOM_READY или ошибку
     loop.exec();
 
     if (errorOccurred) {
@@ -118,12 +121,13 @@ void ConnectionDialog::onConnect() {
     }
 
     if (gameReady) {
-        accept(); // Закрываем диалог с кодом Accepted
+        accept(); 
     }
 }
 
 QTcpSocket* ConnectionDialog::releaseSocket() {
-    // Отцепляем сокет от диалога, чтобы он не закрылся при удалении диалога
+    QObject::disconnect(socket_, nullptr, nullptr, nullptr);
+
     socket_->setParent(nullptr);
     return socket_;
 }
