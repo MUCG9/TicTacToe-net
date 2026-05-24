@@ -27,13 +27,12 @@ private:
     std::vector<std::vector<QPushButton*>> cells_;
     QLabel* statusLabel_;
     QLabel* infoLabel_;
+    QLabel* roleLabel_;          // <-- NEW: Показывает ваш символ
     QPushButton* restartBtn_;
     bool isMyTurn_;
     ttt::core::Player mySymbol_;
 
     void setupUI();
-    void resetBoardUI();
     void parseServerMessage(const QString& raw);
     void applyBoardState(const QString& state);
-    int moveCount_; 
 };

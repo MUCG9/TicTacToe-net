@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 project(ttt_net VERSION 1.0.0 LANGUAGES CXX)
+enable_testing() 
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 set(CMAKE_AUTOMOC ON)
@@ -40,3 +41,20 @@ install(DIRECTORY config/ DESTINATION share/ttt-net)
 install(FILES docs/README.md DESTINATION share/doc/ttt-net)
 
 include(packaging/CPackConfig.cmake)
+
+# --- Google Test Integration ---
+option(BUILD_TESTS "Build unit tests with Google Test" OFF)
+
+if(BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    # Для Windows: используем динамическую CRT как в основном проекте
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    add_subdirectory(tests)
+endif()

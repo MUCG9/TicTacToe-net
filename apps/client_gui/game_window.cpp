@@ -4,16 +4,19 @@
 #include <QGridLayout>
 #include <QMessageBox>
 #include <QApplication>
+#include <QStringList>
+#include <iostream>
 
 GameWindow::GameWindow(QTcpSocket* socket, const QString& opponentName,
                        ttt::core::Player symbol, QWidget* parent)
     : QMainWindow(parent), socket_(socket), 
-      isMyTurn_(symbol == ttt::core::Player::X), // X всегда ходит первым
-      mySymbol_(symbol),
-      moveCount_(0) { // <-- Инициализация
+      isMyTurn_(symbol == ttt::core::Player::X), mySymbol_(symbol) {
     setupUI();
+    
+    // Явно показываем, за кого играет пользователь
+    roleLabel_->setText("Вы играете за: " + QString(symbol == ttt::core::Player::X ? "X (Крестики)" : "O (Нолики)"));
     infoLabel_->setText("Противник: " + opponentName);
-    statusLabel_->setText(isMyTurn_ ? "Ваш ход (X)" : "Ход противника (O)");
+    statusLabel_->setText(isMyTurn_ ? "Сейчас ходит X" : "Сейчас ходит O");
     setWindowTitle("mipt.ttt");
 
     connect(socket_, &QTcpSocket::disconnected, this, &GameWindow::onDisconnected);
@@ -36,14 +39,19 @@ void GameWindow::setupUI() {
     auto central = new QWidget(this);
     setCentralWidget(central);
     auto mainLayout = new QVBoxLayout(central);
-    mainLayout->setSpacing(15);
+    mainLayout->setSpacing(12);
     mainLayout->setContentsMargins(20, 20, 20, 20);
 
-    infoLabel_ = new QLabel("Загрузка...", this);
+    roleLabel_ = new QLabel("Загрузка...", this);
+    roleLabel_->setAlignment(Qt::AlignCenter);
+    roleLabel_->setStyleSheet("font-size: 16px; color: #FFFFFF;");
+    mainLayout->addWidget(roleLabel_);
+
+    infoLabel_ = new QLabel("Противник: ...", this);
     infoLabel_->setAlignment(Qt::AlignCenter);
     mainLayout->addWidget(infoLabel_);
 
-    statusLabel_ = new QLabel("Подключение...", this);
+    statusLabel_ = new QLabel("Ожидание хода...", this);
     statusLabel_->setAlignment(Qt::AlignCenter);
     mainLayout->addWidget(statusLabel_);
 
@@ -79,7 +87,6 @@ void GameWindow::onDisconnected() {
 
 void GameWindow::onReadyRead() {
     QString data = QString::fromUtf8(socket_->readAll());
-    qDebug() << "CLIENT RECEIVED:" << data;
     QStringList msgs = data.split('\n', Qt::SkipEmptyParts);
     for (const QString& msg : msgs) {
         parseServerMessage(msg.trimmed());
@@ -91,104 +98,94 @@ void GameWindow::parseServerMessage(const QString& raw) {
     
     if (msg.type == "STATE") {
         applyBoardState(QString::fromStdString(msg.args.empty() ? "" : msg.args[0]));
-        bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isMyTurn_ : !isMyTurn_;
-        statusLabel_->setText(myTurnNow ? "Ваш ход" : "Ход противника");
-    } else if (msg.type == "ERROR") {
-        statusLabel_->setText("Ошибка: " + QString::fromStdString(msg.args[0]));
-    } else if (msg.type == "RESULT") {
-        QString res = QString::fromStdString(msg.args[0]);
-        QString message = (res == "DRAW") ? "Ничья!" : 
-                          (res == "X_WIN") ? "Победили КРЕСТИКИ!" : "Победили НОЛИКИ!";
+    } 
+    else if (msg.type == "ERROR") {
+        statusLabel_->setText("Ошибка: " + QString::fromStdString(msg.args.empty() ? "" : msg.args[0]));
+    } 
+    else if (msg.type == "RESULT") {
+        // Отладка в консоль, чтобы точно видеть, что приходит от сервера
+        std::cout << "[CLIENT DEBUG] Received RESULT: ";
+        for(const auto& arg : msg.args) std::cout << arg << " ";
+        std::cout << std::endl;
+
+        QString resRaw = msg.args.empty() ? "" : QString::fromStdString(msg.args[0]);
+        QString message;
         
+        if (resRaw == "DRAW") message = "🤝 Ничья! Дружба победила.";
+        else if (resRaw == "X_WIN") message = " Победили крестики (X)!";
+        else if (resRaw == "O_WIN") message = "🏆 Победили нолики (O)!";
+        else message = "️ Игра завершена. Код: " + (resRaw.isEmpty() ? "UNKNOWN" : resRaw);
+
         QMessageBox msgBox(this);
-        msgBox.setWindowTitle("Результат");
+        msgBox.setWindowTitle("Результат игры");
         msgBox.setText(message);
+        msgBox.setInformativeText("Нажмите OK, чтобы начать новую партию или закрыть окно.");
         msgBox.setIcon(QMessageBox::Information);
-        msgBox.setStyleSheet("QMessageBox{background:#F0F8FF;font-size:16px;} QPushButton{background:#0000CD;color:white;border-radius:5px;padding:5px 15px;}");
-        msgBox.exec();
+        msgBox.setStandardButtons(QMessageBox::Ok);
+        msgBox.setStyleSheet(
+            "QMessageBox { background-color: #F0F8FF; font-size: 16px; }"
+            "QLabel { color: #000000; }"
+            "QPushButton { background-color: #0000CD; color: white; border-radius: 5px; padding: 8px 20px; min-width: 80px; }"
+            "QPushButton:hover { background-color: #00008B; }"
+        );
+        
+        msgBox.exec(); // Модальное окно, блокирует интерфейс до нажатия OK
         
         statusLabel_->setText("Игра завершена. Нажмите 'Новая игра'");
+        statusLabel_->setStyleSheet("color: #FF5555; font-weight: bold; font-size: 16px;");
+        restartBtn_->setEnabled(true);
     }
 }
 
 void GameWindow::applyBoardState(const QString& state) {
-    // Подсчитываем фигуры для определения хода
     int xCount = 0;
     int oCount = 0;
-    
     for (int i = 0; i < state.length(); ++i) {
         if (state[i] == 'X') xCount++;
         if (state[i] == 'O') oCount++;
     }
-    
+
     bool isXTurn = (xCount == oCount);
     bool myTurnNow = (mySymbol_ == ttt::core::Player::X) ? isXTurn : !isXTurn;
+
+    statusLabel_->setText(isXTurn ? "Сейчас ходит X" : "Сейчас ходит O");
+    statusLabel_->setStyleSheet(myTurnNow ? "color: #00FF00; font-weight: bold; font-size: 16px;"
+                                          : "color: #FFFF00; font-weight: bold; font-size: 16px;");
 
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
             int idx = r * 3 + c;
             QPushButton* btn = cells_[r][c];
-            
+
             if (idx < state.length()) {
                 QChar ch = state[idx];
-                
-                // 1. Устанавливаем текст
                 btn->setText(QString(ch));
-                
-                // 2. Сбрасываем стиль, чтобы избежать конфликтов кэширования
                 btn->setStyleSheet(""); 
-                
-                // 3. Применяем новый стиль в зависимости от символа
-                QString style;
-                if (ch == 'X') {
-                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
-                } else if (ch == 'O') {
-                    style = "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
-                } else {
-                    // Пустая клетка
-                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
-                }
-                btn->setStyleSheet(style);
 
-                // 4. Управление доступностью (блокировка)
-                bool canClick = (ch == '.' && myTurnNow);
-                btn->setEnabled(canClick);
+                QString style;
+                if (ch == 'X') 
+                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+                else if (ch == 'O') 
+                    style = "background-color: white; color: #DC143C; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+                else 
+                    style = "background-color: white; color: #0000CD; border: 2px solid #00008B; border-radius: 10px; font: bold 36px 'Arial';";
+
+                btn->setStyleSheet(style);
+                btn->setEnabled(ch == '.' && myTurnNow);
             }
         }
     }
-
-    // Обновляем статусную строку
-    if (myTurnNow) {
-        QString symbolStr = (mySymbol_ == ttt::core::Player::X) ? "X" : "O";
-        statusLabel_->setText("Ваш ход (" + symbolStr + ")");
-        statusLabel_->setStyleSheet("color: #00FF00; font-weight: bold; font-size: 16px;");
-    } else {
-        statusLabel_->setText("Ход противника...");
-        statusLabel_->setStyleSheet("color: #FFFF00; font-weight: bold; font-size: 16px;");
-    }
-    
-    // Форсируем перерисовку окна
     this->update();
     QApplication::processEvents();
 }
 
 void GameWindow::onCellClicked(int row, int col) {
-    // Проверка: кнопка должна быть enabled. Если нет - выходим.
     if (!cells_[row][col]->isEnabled()) return;
-    
-    // Дополнительная проверка на всякий случай
     if (!socket_) return;
 
-    // Отправляем ход
     auto msg = ttt::net::Protocol::make_move(row, col);
-    socket_->write(QString::fromStdString(
-    ttt::net::Protocol::serialize(msg)
-    ).toUtf8());
-
-    socket_->flush();
-    socket_->waitForBytesWritten();
+    socket_->write(QString::fromStdString(ttt::net::Protocol::serialize(msg)).toUtf8());
     
-    // Сразу блокируем кнопку, чтобы нельзя было нажать дважды пока ждем ответ
     cells_[row][col]->setEnabled(false);
     statusLabel_->setText("Отправка хода...");
 }
@@ -198,14 +195,5 @@ void GameWindow::onRestartClicked() {
     socket_->write("RESTART\n");
     isMyTurn_ = (mySymbol_ == ttt::core::Player::X);
     statusLabel_->setText("Ожидание перезапуска...");
-    resetBoardUI();
-}
-
-void GameWindow::resetBoardUI() {
-    for (auto& row : cells_)
-        for (auto btn : row) {
-            btn->setText(".");
-            btn->setStyleSheet("background:white;color:#0000CD;border:2px solid #00008B;border-radius:10px;font:bold 36px 'Arial';");
-            btn->setEnabled(false);
-        }
+    statusLabel_->setStyleSheet("color: #FFFFFF; font-weight: bold; font-size: 16px;");
 }
